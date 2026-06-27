@@ -18,10 +18,9 @@ const analyses = []
 // Health check
 app.get('/health', (req, res) => {
   res.json({
-    status: 'ok',
-    service: 'blast-radius',
-    frontend_url: process.env.RENDER_FRONTEND_URL || '',
-    checked_at: new Date().toISOString()
+    state: 'ready',
+    app: 'blast-radius',
+    checkedAt: new Date().toISOString()
   })
 })
  
