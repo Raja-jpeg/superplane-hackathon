@@ -52,6 +52,28 @@ app.post('/webhook', async (req, res) => {
  
   res.json({ received: true, pr: prNumber })
 })
+
+// SECURITY DEMO ONLY: intentionally risky SSRF-style endpoint.
+// Keep DEMO_INSECURE_ENDPOINTS unset in Render. This exists to show Blast Radius
+// blocking a PR that lets users make the backend fetch arbitrary URLs.
+app.get('/api/render-preview', async (req, res) => {
+  if (process.env.DEMO_INSECURE_ENDPOINTS !== 'true') {
+    return res.status(403).json({
+      error: 'demo endpoint disabled',
+      mitigation: 'Use an allowlist and block private network targets before enabling preview fetches.'
+    })
+  }
+
+  const target = req.query.url
+  if (!target) return res.status(400).json({ error: 'missing url' })
+
+  const response = await axios.get(target, { timeout: 3000 })
+  res.json({
+    source: target,
+    status: response.status,
+    preview: String(response.data).slice(0, 500)
+  })
+})
  
 // SuperPlane calls this for LOW risk PRs
 app.post('/approve', async (req, res) => {
