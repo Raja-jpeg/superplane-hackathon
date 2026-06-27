@@ -1,6 +1,8 @@
 require('dotenv').config()
 const express = require('express')
 const axios = require('axios')
+const dns = require('dns').promises
+const net = require('net')
 const app = express()
  
 app.use(express.json())
@@ -53,9 +55,8 @@ app.post('/webhook', async (req, res) => {
   res.json({ received: true, pr: prNumber })
 })
 
-// SECURITY DEMO ONLY: intentionally risky SSRF-style endpoint.
-// Keep DEMO_INSECURE_ENDPOINTS unset in Render. This exists to show Blast Radius
-// blocking a PR that lets users make the backend fetch arbitrary URLs.
+// SECURITY DEMO ONLY: preview fetches stay disabled unless explicitly enabled.
+// The mitigation requires an allowlist and blocks private network targets.
 app.get('/api/render-preview', async (req, res) => {
   if (process.env.DEMO_INSECURE_ENDPOINTS !== 'true') {
     return res.status(403).json({
@@ -67,13 +68,70 @@ app.get('/api/render-preview', async (req, res) => {
   const target = req.query.url
   if (!target) return res.status(400).json({ error: 'missing url' })
 
-  const response = await axios.get(target, { timeout: 3000 })
+  const validation = await validatePreviewTarget(target)
+  if (!validation.ok) return res.status(400).json({ error: validation.reason })
+
+  const response = await axios.get(validation.url, {
+    timeout: 3000,
+    maxContentLength: 512000,
+    maxRedirects: 0
+  })
   res.json({
-    source: target,
+    source: validation.url,
     status: response.status,
     preview: String(response.data).slice(0, 500)
   })
 })
+
+async function validatePreviewTarget(target) {
+  let parsed
+  try {
+    parsed = new URL(target)
+  } catch {
+    return { ok: false, reason: 'invalid url' }
+  }
+
+  if (!['https:', 'http:'].includes(parsed.protocol)) {
+    return { ok: false, reason: 'only http and https previews are allowed' }
+  }
+
+  const allowedHosts = (process.env.PREVIEW_ALLOWED_HOSTS || 'example.com')
+    .split(',')
+    .map((host) => host.trim().toLowerCase())
+    .filter(Boolean)
+
+  if (!allowedHosts.includes(parsed.hostname.toLowerCase())) {
+    return { ok: false, reason: 'host is not in preview allowlist' }
+  }
+
+  const addresses = await dns.lookup(parsed.hostname, { all: true })
+  if (addresses.some(({ address }) => isPrivateAddress(address))) {
+    return { ok: false, reason: 'private network targets are blocked' }
+  }
+
+  return { ok: true, url: parsed.toString() }
+}
+
+function isPrivateAddress(address) {
+  if (net.isIPv4(address)) {
+    const parts = address.split('.').map(Number)
+    return parts[0] === 10 ||
+      parts[0] === 127 ||
+      (parts[0] === 169 && parts[1] === 254) ||
+      (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) ||
+      (parts[0] === 192 && parts[1] === 168)
+  }
+
+  if (net.isIPv6(address)) {
+    const normalized = address.toLowerCase()
+    return normalized === '::1' ||
+      normalized.startsWith('fc') ||
+      normalized.startsWith('fd') ||
+      normalized.startsWith('fe80:')
+  }
+
+  return true
+}
  
 // SuperPlane calls this for LOW risk PRs
 app.post('/approve', async (req, res) => {
