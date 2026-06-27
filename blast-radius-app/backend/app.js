@@ -17,12 +17,23 @@ const analyses = []
  
 // Health check
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', service: 'blast-radius' })
+  res.json({
+    status: 'ok',
+    service: 'blast-radius',
+    frontend_url: process.env.RENDER_FRONTEND_URL || '',
+    checked_at: new Date().toISOString()
+  })
 })
  
 // Frontend polls this for live data
 app.get('/status', (req, res) => {
-  res.json({ analyses: analyses.slice(0, 10) })
+  res.json({
+    status: 'ok',
+    service: 'blast-radius',
+    frontend_url: process.env.RENDER_FRONTEND_URL || '',
+    checked_at: new Date().toISOString(),
+    analyses: analyses.slice(0, 10)
+  })
 })
  
 // GitHub sends PR events here
@@ -44,42 +55,60 @@ app.post('/webhook', async (req, res) => {
  
 // SuperPlane calls this for LOW risk PRs
 app.post('/approve', async (req, res) => {
-  const { prNumber, repo, reason, contracts_broken } = req.body
+  const { prNumber, repo, reason, contracts_broken, impacted_components, architecture_impact, health_status } = req.body
   const entry = {
     prNumber,
     repo: repo || process.env.GITHUB_REPO,
     risk: 'LOW',
     reason: reason || 'No broken contracts detected. Safe to ship.',
     contracts_broken: contracts_broken || [],
+    impacted_components: impacted_components || [],
+    architecture_impact: architecture_impact || 'Change is isolated; no downstream service contracts are impacted.',
+    frontend_url: process.env.RENDER_FRONTEND_URL || '',
+    health_status: health_status || 'healthy',
     status: 'deployed',
     timestamp: new Date().toISOString()
   }
   analyses.unshift(entry)
  
   const frontendUrl = process.env.RENDER_FRONTEND_URL || ''
+  if (process.env.LEGACY_BLAST_COMMENTS === 'true') {
   await postComment(entry.repo, prNumber,
     `✅ **Blast Radius: LOW RISK**\n\n${entry.reason}\n\nAuto-deploying now.${frontendUrl ? `\n\n[View full analysis](${frontendUrl})` : ''}`
+  )
+  }
+  await postComment(entry.repo, prNumber,
+    `✅ **Blast Radius: LOW RISK — factory lane cleared**\n\n${entry.reason}\n\n🟢 **Health:** ${entry.health_status}\n🏗️ **Architecture impact:** ${entry.architecture_impact}\n\nAuto-deploying now.${frontendUrl ? `\n\n🔎 [View live factory dashboard](${frontendUrl})` : ''}`
   )
   res.json({ approved: true, pr: prNumber })
 })
  
 // SuperPlane calls this for HIGH risk PRs
 app.post('/block', async (req, res) => {
-  const { prNumber, repo, reason, contracts_broken } = req.body
+  const { prNumber, repo, reason, contracts_broken, impacted_components, architecture_impact, health_status } = req.body
   const entry = {
     prNumber,
     repo: repo || process.env.GITHUB_REPO,
     risk: 'HIGH',
     reason: reason || 'Broken contracts detected. Human approval required.',
     contracts_broken: contracts_broken || [],
+    impacted_components: impacted_components || [],
+    architecture_impact: architecture_impact || 'A shared API contract may affect downstream services. Human review required before deployment.',
+    frontend_url: process.env.RENDER_FRONTEND_URL || '',
+    health_status: health_status || 'review_required',
     status: 'blocked',
     timestamp: new Date().toISOString()
   }
   analyses.unshift(entry)
  
   const frontendUrl = process.env.RENDER_FRONTEND_URL || ''
+  if (process.env.LEGACY_BLAST_COMMENTS === 'true') {
   await postComment(entry.repo, prNumber,
     `🚨 **Blast Radius: HIGH RISK**\n\n${entry.reason}\n\nMerge blocked pending human review.${frontendUrl ? `\n\n[View full analysis](${frontendUrl})` : ''}`
+  )
+  }
+  await postComment(entry.repo, prNumber,
+    `🚨 **Blast Radius: HIGH RISK — containment gate engaged**\n\n${entry.reason}\n\n🧩 **Impacted components:** ${entry.impacted_components.length ? entry.impacted_components.join(', ') : 'See analysis'}\n🏗️ **Architecture impact:** ${entry.architecture_impact}\n\nMerge blocked pending review.${frontendUrl ? `\n\n🔎 [Open live factory dashboard](${frontendUrl})` : ''}`
   )
   res.json({ blocked: true, pr: prNumber })
 })

@@ -231,7 +231,9 @@
   </main>
 
 <script>
-const BACKEND = 'https://superplane-hackathon.onrender.com'
+const DEFAULT_BACKEND = 'https://superplane-hackathon.onrender.com'
+const params = new URLSearchParams(window.location.search)
+const BACKEND = params.get('backend') || localStorage.getItem('blast-radius-backend') || DEFAULT_BACKEND
 
 function timeAgo(iso) {
   const d = Math.floor((Date.now() - new Date(iso)) / 1000)
@@ -344,6 +346,36 @@ function renderLatest(a) {
       </div>`).join('')}</div>`
   }
 
+  let impactHtml = ''
+  if (a.impacted_components && a.impacted_components.length) {
+    impactHtml = `<div class="mt-3"><div class="text-[10px] uppercase tracking-wider text-slate-500 mb-1.5">Impacted components</div><div class="flex flex-wrap gap-2">${a.impacted_components.map(c=>`
+      <span class="mono text-xs bg-orange-500/10 border border-orange-500/25 text-orange-300 rounded-full px-2.5 py-1">${c}</span>`).join('')}</div></div>`
+  }
+
+  const architectureHtml = a.architecture_impact ? `
+    <div class="mt-3 bg-slate-950 border border-slate-800 rounded-xl p-3">
+      <div class="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Architecture impact</div>
+      <div class="text-xs text-slate-300 leading-relaxed">${a.architecture_impact}</div>
+    </div>` : ''
+
+  const health = a.health_status || (a.status === 'deployed' ? 'healthy' : 'review required')
+  const isHealthy = String(health).toLowerCase().includes('healthy') || a.status === 'deployed'
+  const healthHtml = `
+    <div class="mt-3 flex items-center justify-between bg-slate-950 border border-slate-800 rounded-xl px-3 py-2">
+      <div class="flex items-center gap-2">
+        <span class="${isHealthy ? 'text-green-400' : 'text-yellow-400'}">${isHealthy ? '✓' : '!'}</span>
+        <span class="text-xs text-slate-300">System health</span>
+      </div>
+      <span class="mono text-xs ${isHealthy ? 'text-green-400' : 'text-yellow-400'}">${health}</span>
+    </div>`
+
+  const appUrl = a.frontend_url || ''
+  const appLinkHtml = appUrl ? `
+    <a href="${appUrl}" target="_blank" class="mt-3 flex items-center justify-between bg-green-500/10 hover:bg-green-500/15 border border-green-500/25 rounded-xl px-3 py-2 transition-colors">
+      <span class="text-xs text-green-300">✓ Frontend is healthy</span>
+      <span class="mono text-[10px] text-green-400 truncate max-w-[260px]">${appUrl}</span>
+    </a>` : ''
+
   document.getElementById('latest-card').innerHTML = `
     <div class="flex items-start justify-between mb-4">
       <div class="flex items-center gap-3">
@@ -357,6 +389,10 @@ function renderLatest(a) {
     </div>
     <div class="bg-slate-900 rounded-xl p-4 border border-slate-800 text-sm text-slate-300 leading-relaxed">${a.reason}</div>
     ${contractsHtml}
+    ${impactHtml}
+    ${architectureHtml}
+    ${healthHtml}
+    ${appLinkHtml}
   `
 }
 
