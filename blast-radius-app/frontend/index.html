@@ -1,9 +1,42 @@
 <!DOCTYPE html>
 <html>
-<head><title>Blast Radius</title></head>
+<head>
+  <title>Blast Radius</title>
+  <style>
+    body { font-family: sans-serif; background: #0a0a0a; color: #fff; padding: 40px; }
+    h1 { color: #ff4444; }
+    .graph { display: flex; gap: 40px; align-items: center; margin-top: 40px; }
+    .node { padding: 16px 24px; border-radius: 8px; font-weight: bold; }
+    .changed { background: #ff4444; }
+    .blast { background: #ff8800; }
+    .safe { background: #22aa44; }
+    .arrow { font-size: 2rem; color: #555; }
+    .legend { margin-top: 40px; display: flex; gap: 20px; }
+    .legend-item { display: flex; align-items: center; gap: 8px; }
+    .dot { width: 16px; height: 16px; border-radius: 50%; }
+  </style>
+</head>
 <body>
   <h1>⚡ Blast Radius</h1>
-  <p>Predict. Gate. Contain.</p>
+  <p style="color:#aaa">Service dependency impact for the last analyzed PR</p>
+
+  <div class="graph">
+    <div class="node blast">frontend</div>
+    <div class="arrow">→</div>
+    <div class="node changed">backend API ⚠ CHANGED</div>
+    <div class="arrow">→</div>
+    <div class="node safe">database</div>
+  </div>
+  <div class="graph">
+    <div class="node blast">auth service</div>
+    <div class="arrow">→</div>
+    <div class="node changed">backend API</div>
+  </div>
+
+  <div class="legend">
+    <div class="legend-item"><div class="dot" style="background:#ff4444"></div> Changed</div>
+    <div class="legend-item"><div class="dot" style="background:#ff8800"></div> In blast radius</div>
+    <div class="legend-item"><div class="dot" style="background:#22aa44"></div> Safe</div>
+  </div>
 </body>
 </html>
-
