@@ -1,42 +1,417 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Blast Radius</title>
+  <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    body { font-family: sans-serif; background: #0a0a0a; color: #fff; padding: 40px; }
-    h1 { color: #ff4444; }
-    .graph { display: flex; gap: 40px; align-items: center; margin-top: 40px; }
-    .node { padding: 16px 24px; border-radius: 8px; font-weight: bold; }
-    .changed { background: #ff4444; }
-    .blast { background: #ff8800; }
-    .safe { background: #22aa44; }
-    .arrow { font-size: 2rem; color: #555; }
-    .legend { margin-top: 40px; display: flex; gap: 20px; }
-    .legend-item { display: flex; align-items: center; gap: 8px; }
-    .dot { width: 16px; height: 16px; border-radius: 50%; }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap');
+    * { font-family: 'Inter', sans-serif; }
+    .mono { font-family: 'JetBrains Mono', monospace; }
+
+    .glow-red    { box-shadow: 0 0 0 1px rgba(239,68,68,0.6), 0 0 24px rgba(239,68,68,0.35), 0 0 48px rgba(239,68,68,0.15); }
+    .glow-orange { box-shadow: 0 0 0 1px rgba(249,115,22,0.5), 0 0 20px rgba(249,115,22,0.3), 0 0 40px rgba(249,115,22,0.1); }
+    .glow-green  { box-shadow: 0 0 0 1px rgba(34,197,94,0.4),  0 0 20px rgba(34,197,94,0.25), 0 0 40px rgba(34,197,94,0.08); }
+    .glow-blue   { box-shadow: 0 0 0 1px rgba(59,130,246,0.4), 0 0 20px rgba(59,130,246,0.2); }
+
+    @keyframes pulseRed {
+      0%,100% { box-shadow: 0 0 0 1px rgba(239,68,68,0.6), 0 0 24px rgba(239,68,68,0.4); }
+      50%      { box-shadow: 0 0 0 1px rgba(239,68,68,0.9), 0 0 48px rgba(239,68,68,0.7), 0 0 72px rgba(239,68,68,0.2); }
+    }
+    .pulse-red { animation: pulseRed 2s ease-in-out infinite; }
+
+    @keyframes borderPulse {
+      0%,100% { border-color: #f97316; }
+      50%      { border-color: #fb923c; box-shadow: 0 0 16px rgba(249,115,22,0.35); }
+    }
+    .step-active { animation: borderPulse 1.5s ease-in-out infinite; }
+
+    .gradient-brand {
+      background: linear-gradient(135deg, #ef4444 0%, #f97316 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    }
+    .bg-brand { background: linear-gradient(135deg, #ef4444 0%, #f97316 100%); }
+
+    .card {
+      background: rgba(15,23,42,0.9);
+      border: 1px solid rgba(55,65,81,0.4);
+      backdrop-filter: blur(16px);
+    }
+
+    .badge-high    { background: rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.35); color:#f87171; }
+    .badge-low     { background: rgba(34,197,94,0.12);  border:1px solid rgba(34,197,94,0.35);  color:#4ade80; }
+    .badge-waiting { background: rgba(250,204,21,0.12); border:1px solid rgba(250,204,21,0.35); color:#fde047; }
+
+    /* SVG arrow line */
+    .edge { stroke: #374151; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+    .edge-blast { stroke: #f97316; stroke-width: 2; fill: none; marker-end: url(#arrow-orange); }
+
+    /* Animated scan line */
+    @keyframes scan { 0%{top:0} 100%{top:100%} }
+    .scan-line { position:absolute; left:0; right:0; height:2px; background:linear-gradient(90deg,transparent,rgba(239,68,68,0.6),transparent); animation: scan 3s linear infinite; }
   </style>
 </head>
-<body>
-  <h1>⚡ Blast Radius</h1>
-  <p style="color:#aaa">Service dependency impact for the last analyzed PR</p>
+<body class="bg-slate-950 text-white min-h-screen overflow-x-hidden">
 
-  <div class="graph">
-    <div class="node blast">frontend</div>
-    <div class="arrow">→</div>
-    <div class="node changed">backend API ⚠ CHANGED</div>
-    <div class="arrow">→</div>
-    <div class="node safe">database</div>
-  </div>
-  <div class="graph">
-    <div class="node blast">auth service</div>
-    <div class="arrow">→</div>
-    <div class="node changed">backend API</div>
-  </div>
+  <!-- Grid background -->
+  <div class="fixed inset-0 pointer-events-none"
+       style="background-image:linear-gradient(rgba(239,68,68,0.04) 1px,transparent 1px),linear-gradient(90deg,rgba(239,68,68,0.04) 1px,transparent 1px);background-size:48px 48px"></div>
+  <!-- Radial glow -->
+  <div class="fixed inset-0 pointer-events-none" style="background:radial-gradient(ellipse 80% 50% at 50% 0%,rgba(239,68,68,0.07),transparent)"></div>
 
-  <div class="legend">
-    <div class="legend-item"><div class="dot" style="background:#ff4444"></div> Changed</div>
-    <div class="legend-item"><div class="dot" style="background:#ff8800"></div> In blast radius</div>
-    <div class="legend-item"><div class="dot" style="background:#22aa44"></div> Safe</div>
-  </div>
+  <!-- Header -->
+  <header class="sticky top-0 z-50 border-b border-slate-800/60 bg-slate-950/80 backdrop-blur-xl">
+    <div class="max-w-7xl mx-auto px-6 py-3.5 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 bg-brand rounded-lg flex items-center justify-center text-sm font-black glow-red">⚡</div>
+        <span class="text-lg font-black tracking-tight">Blast<span class="gradient-brand">Radius</span></span>
+        <span class="mono text-[10px] text-slate-500 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded-full">v1.0 · live</span>
+      </div>
+      <div class="flex items-center gap-5">
+        <div class="flex items-center gap-2">
+          <div id="dot" class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+          <span id="status-text" class="text-sm text-slate-400">connecting…</span>
+        </div>
+        <a href="https://github.com/Raja-jpeg/superplane-hackathon" target="_blank"
+           class="flex items-center gap-2 text-sm text-slate-400 hover:text-white transition-colors border border-slate-800 hover:border-slate-600 rounded-lg px-3 py-1.5">
+          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+          GitHub
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <main class="relative max-w-7xl mx-auto px-6 py-12 space-y-10">
+
+    <!-- Hero -->
+    <div class="text-center space-y-4">
+      <div class="inline-flex items-center gap-2 mono text-xs text-slate-500 bg-slate-900/80 border border-slate-800 px-3 py-1.5 rounded-full mb-2">
+        <span class="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse"></span>
+        SuperPlane Hackathon 2026
+      </div>
+      <h1 class="text-6xl font-black tracking-tight leading-tight">
+        Predict. Gate.<br><span class="gradient-brand">Contain.</span>
+      </h1>
+      <p class="text-slate-400 text-xl max-w-2xl mx-auto leading-relaxed">
+        Tests check if your code works.<br>
+        <span class="text-white font-medium">Blast Radius checks who else breaks when it ships.</span>
+      </p>
+    </div>
+
+    <!-- Stats -->
+    <div class="grid grid-cols-3 gap-4">
+      <div class="card rounded-2xl p-6 text-center group hover:border-slate-600 transition-colors">
+        <div id="stat-total" class="text-4xl font-black text-white">0</div>
+        <div class="text-sm text-slate-500 mt-1.5">PRs analyzed</div>
+      </div>
+      <div class="card rounded-2xl p-6 text-center group hover:border-red-900/50 transition-colors">
+        <div id="stat-high" class="text-4xl font-black text-red-400">0</div>
+        <div class="text-sm text-slate-500 mt-1.5">Broken contracts caught</div>
+      </div>
+      <div class="card rounded-2xl p-6 text-center group hover:border-green-900/50 transition-colors">
+        <div id="stat-low" class="text-4xl font-black text-green-400">0</div>
+        <div class="text-sm text-slate-500 mt-1.5">Auto-deployed safely</div>
+      </div>
+    </div>
+
+    <!-- Main content grid -->
+    <div class="grid grid-cols-5 gap-6">
+
+      <!-- Latest analysis (3 cols) -->
+      <div class="col-span-3 space-y-6">
+
+        <!-- Analysis card -->
+        <div class="card rounded-2xl p-6">
+          <div class="flex items-center justify-between mb-5">
+            <h2 class="font-bold text-base text-slate-200">Latest Analysis</h2>
+            <span id="latest-badge" class="mono text-xs px-3 py-1 rounded-full font-bold badge-waiting">ANALYZING…</span>
+          </div>
+          <div id="latest-card">
+            <div class="text-center py-10 text-slate-600">
+              <div class="text-4xl mb-3">⚡</div>
+              <div class="text-sm">Waiting for first PR…</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- History -->
+        <div class="card rounded-2xl p-6">
+          <h2 class="font-bold text-base text-slate-200 mb-4">PR History</h2>
+          <div id="history">
+            <div class="text-center py-6 text-slate-600 text-sm">No history yet</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Pipeline (2 cols) -->
+      <div class="col-span-2 card rounded-2xl p-6">
+        <h2 class="font-bold text-base text-slate-200 mb-5">Pipeline</h2>
+        <div id="pipeline" class="space-y-2.5"></div>
+        <div class="mt-6 pt-5 border-t border-slate-800">
+          <div class="text-xs text-slate-600 text-center mono">Powered by SuperPlane + Render</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Dependency graph -->
+    <div class="card rounded-2xl p-8">
+      <div class="flex items-center justify-between mb-8">
+        <div>
+          <h2 class="font-bold text-base text-slate-200">Service Dependency Graph</h2>
+          <p class="text-xs text-slate-500 mt-1">Impact propagation from the last analyzed PR</p>
+        </div>
+        <div class="flex items-center gap-4 text-xs">
+          <div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-red-500 glow-red"></div><span class="text-slate-400">Changed</span></div>
+          <div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-orange-500"></div><span class="text-slate-400">Blast radius</span></div>
+          <div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-green-500"></div><span class="text-slate-400">Safe</span></div>
+        </div>
+      </div>
+
+      <!-- Graph SVG layout -->
+      <div id="graph-wrap" class="relative overflow-hidden rounded-xl bg-slate-900/50 border border-slate-800 p-8" style="min-height:260px">
+        <div class="scan-line"></div>
+        <div id="graph-nodes" class="relative z-10 flex items-center justify-center gap-6 flex-wrap">
+          <div class="text-slate-600 text-sm">Waiting for analysis…</div>
+        </div>
+      </div>
+      <p id="graph-caption" class="text-center text-xs text-slate-600 mt-4">Open a PR to see the blast radius propagate.</p>
+    </div>
+
+    <!-- How it works -->
+    <div class="card rounded-2xl p-8">
+      <h2 class="font-bold text-base text-slate-200 mb-6">How It Works</h2>
+      <div class="grid grid-cols-6 gap-2 items-center">
+        <div class="text-center p-4 bg-slate-900 rounded-xl border border-slate-800">
+          <div class="text-2xl mb-2">📬</div>
+          <div class="text-xs font-semibold text-slate-300">PR Opens</div>
+          <div class="text-[10px] text-slate-600 mt-1 mono">GitHub</div>
+        </div>
+        <div class="text-slate-700 text-2xl text-center">→</div>
+        <div class="text-center p-4 bg-slate-900 rounded-xl border border-slate-800">
+          <div class="text-2xl mb-2">🔍</div>
+          <div class="text-xs font-semibold text-slate-300">Fetch Diff</div>
+          <div class="text-[10px] text-slate-600 mt-1 mono">SuperPlane</div>
+        </div>
+        <div class="text-slate-700 text-2xl text-center">→</div>
+        <div class="text-center p-4 bg-slate-900 rounded-xl border border-slate-800">
+          <div class="text-2xl mb-2">🤖</div>
+          <div class="text-xs font-semibold text-slate-300">LLM Analysis</div>
+          <div class="text-[10px] text-slate-600 mt-1 mono">OpenAI</div>
+        </div>
+        <div class="text-slate-700 text-2xl text-center">→</div>
+      </div>
+      <div class="grid grid-cols-6 gap-2 items-center mt-2">
+        <div class="text-slate-700 text-2xl text-center col-start-2">↓ LOW</div>
+        <div class="text-slate-700 text-2xl text-center col-start-4">↓ HIGH</div>
+      </div>
+      <div class="grid grid-cols-2 gap-6 mt-2">
+        <div class="p-4 bg-green-500/5 border border-green-500/20 rounded-xl">
+          <div class="text-xs font-bold text-green-400 mb-2">✅ LOW RISK PATH</div>
+          <div class="text-xs text-slate-400 space-y-1">
+            <div>→ Auto-approve comment on PR</div>
+            <div>→ Deploy to Render</div>
+            <div>→ Health check passes</div>
+            <div>→ Link posted on PR</div>
+          </div>
+        </div>
+        <div class="p-4 bg-red-500/5 border border-red-500/20 rounded-xl">
+          <div class="text-xs font-bold text-red-400 mb-2">🚨 HIGH RISK PATH</div>
+          <div class="text-xs text-slate-400 space-y-1">
+            <div>→ Block comment on PR</div>
+            <div>→ Human approval gate</div>
+            <div>→ Approve → Deploy to Render</div>
+            <div>→ Health check + rollback if degraded</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="text-center text-xs text-slate-800 pb-4 mono">blast-radius · superplane + render · hackathon 2026</div>
+  </main>
+
+<script>
+const BACKEND = 'https://superplane-hackathon.onrender.com'
+
+function timeAgo(iso) {
+  const d = Math.floor((Date.now() - new Date(iso)) / 1000)
+  if (d < 60) return `${d}s ago`
+  if (d < 3600) return `${Math.floor(d/60)}m ago`
+  return `${Math.floor(d/3600)}h ago`
+}
+
+// --- Pipeline renderer ---
+function renderPipeline(risk, status) {
+  const isHigh = risk === 'HIGH'
+  const isDone = status === 'deployed'
+  const steps = [
+    { icon:'📬', label:'PR Opened',       detail:'github.onPullRequest',         done: true },
+    { icon:'🔍', label:'Diff Fetched',    detail:'raw unified diff',             done: !!risk },
+    { icon:'🤖', label:'LLM Analysis',   detail: risk ? `→ ${risk} RISK` : '…', done: !!risk },
+    { icon:'🚦', label:'Risk Gate',       detail: isHigh ? (isDone?'✅ approved':'⏳ awaiting') : '✅ auto-approved', done: !!risk },
+    { icon:'🚀', label:'Deploy to Render',detail: isDone?'✅ live':'pending',    done: isDone },
+    { icon:'❤️', label:'Health Check',   detail: isDone?'✅ passed':'pending',   done: isDone },
+  ]
+  const firstPending = steps.findIndex(s => !s.done)
+  document.getElementById('pipeline').innerHTML = steps.map((s,i) => {
+    const isDoneStep = s.done
+    const isActive = i === firstPending
+    let wrapClass, numEl
+    if (isDoneStep) {
+      wrapClass = 'bg-emerald-950/60 border border-emerald-800/50 rounded-xl px-4 py-3 flex items-center gap-3'
+      numEl = `<div class="w-7 h-7 bg-green-500 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0">✓</div>`
+    } else if (isActive) {
+      wrapClass = 'bg-orange-950/30 border border-orange-700/50 rounded-xl px-4 py-3 flex items-center gap-3 step-active'
+      numEl = `<div class="w-7 h-7 bg-orange-500 rounded-full flex items-center justify-center flex-shrink-0"><div class="w-2 h-2 bg-white rounded-full animate-pulse"></div></div>`
+    } else {
+      wrapClass = 'bg-slate-900/50 border border-slate-800 rounded-xl px-4 py-3 flex items-center gap-3 opacity-40'
+      numEl = `<div class="w-7 h-7 bg-slate-800 rounded-full flex items-center justify-center text-xs text-slate-500 flex-shrink-0">${i+1}</div>`
+    }
+    return `<div class="${wrapClass}">${numEl}<div class="min-w-0"><div class="text-sm font-medium ${isDoneStep?'text-slate-200':isActive?'text-orange-300':'text-slate-500'}">${s.label}</div><div class="text-xs mono truncate ${isDoneStep?'text-slate-400':'text-slate-600'}">${s.detail}</div></div></div>`
+  }).join('')
+}
+
+// --- Graph renderer ---
+function renderGraph(risk) {
+  const isHigh = risk === 'HIGH'
+  const nodes = isHigh ? [
+    { id:'fe',  label:'frontend',    icon:'🖥',  type:'blast' },
+    { id:'api', label:'backend API', icon:'⚡',  type:'changed' },
+    { id:'db',  label:'database',    icon:'🗄',  type:'safe' },
+    { id:'ac',  label:'agent-chat',  icon:'💬',  type:'blast' },
+  ] : [
+    { id:'ui',  label:'UI layer',    icon:'🎨',  type:'changed' },
+    { id:'fe',  label:'frontend',    icon:'🖥',  type:'safe' },
+    { id:'api', label:'backend API', icon:'⚡',  type:'safe' },
+    { id:'db',  label:'database',    icon:'🗄',  type:'safe' },
+  ]
+
+  const styles = {
+    changed: { wrap:'pulse-red bg-red-950/60 border-2 border-red-500 rounded-2xl p-5 text-center w-32', label:'text-red-300', sub:'text-red-400 font-bold', subtext:'CHANGED ⚠' },
+    blast:   { wrap:'glow-orange bg-orange-950/40 border-2 border-orange-500/60 rounded-2xl p-5 text-center w-32', label:'text-orange-300', sub:'text-orange-400/80', subtext:'BLAST RADIUS' },
+    safe:    { wrap:'glow-green bg-emerald-950/40 border-2 border-green-500/50 rounded-2xl p-5 text-center w-32', label:'text-green-300', sub:'text-green-400/60', subtext:'SAFE' },
+  }
+
+  const arrowHtml = '<div class="text-slate-600 text-xl">→</div>'
+
+  let html = '<div class="flex items-center justify-center gap-3 flex-wrap">'
+  if (isHigh) {
+    // Row 1: frontend → backend API → database
+    const [fe, api, db, ac] = nodes
+    ;[fe, api, db].forEach((n, i) => {
+      const s = styles[n.type]
+      html += `<div class="${s.wrap}"><div class="text-2xl mb-2">${n.icon}</div><div class="text-sm font-semibold ${s.label}">${n.label}</div><div class="text-[10px] mt-1 ${s.sub}">${s.subtext}</div></div>`
+      if (i < 2) html += arrowHtml
+    })
+    html += '</div>'
+    // Row 2: agent-chat → backend API
+    html += '<div class="flex items-center justify-center gap-3 mt-4">'
+    const s2 = styles[ac.type]
+    html += `<div class="${s2.wrap}"><div class="text-2xl mb-2">${ac.icon}</div><div class="text-sm font-semibold ${s2.label}">${ac.label}</div><div class="text-[10px] mt-1 ${s2.sub}">${s2.subtext}</div></div>`
+    html += arrowHtml
+    html += `<div class="text-xs text-slate-500 border border-slate-700 rounded-xl px-4 py-3 mono text-center">backend API<br/><span class="text-red-400/70">(same node)</span></div>`
+    html += '</div>'
+  } else {
+    nodes.forEach((n, i) => {
+      const s = styles[n.type]
+      html += `<div class="${s.wrap}"><div class="text-2xl mb-2">${n.icon}</div><div class="text-sm font-semibold ${s.label}">${n.label}</div><div class="text-[10px] mt-1 ${s.sub}">${s.subtext}</div></div>`
+      if (i < nodes.length - 1) html += arrowHtml
+    })
+    html += '</div>'
+  }
+  document.getElementById('graph-nodes').innerHTML = html
+
+  document.getElementById('graph-caption').textContent = isHigh
+    ? 'Frontend and agent-chat are in the blast radius — both depend on the renamed backend endpoint. Database has no inbound dependency and is safe.'
+    : 'Change is isolated to the UI layer. No cross-service contracts affected. Safe to auto-deploy.'
+}
+
+// --- Latest card ---
+function renderLatest(a) {
+  const badge = document.getElementById('latest-badge')
+  badge.textContent = `${a.risk} RISK`
+  badge.className = `mono text-xs px-3 py-1 rounded-full font-bold ${a.risk === 'HIGH' ? 'badge-high' : 'badge-low'}`
+
+  const statusColor = a.status === 'deployed' ? 'bg-green-500/10 border-green-500/30 text-green-400' : 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'
+  const statusLabel = a.status === 'deployed' ? '✓ Deployed' : '⏳ Awaiting approval'
+
+  let contractsHtml = ''
+  if (a.contracts_broken && a.contracts_broken.length) {
+    contractsHtml = `<div class="mt-3 space-y-1.5">${a.contracts_broken.map(c=>`
+      <div class="flex items-center gap-2 bg-red-500/5 border border-red-500/20 rounded-lg px-3 py-2">
+        <div class="w-1.5 h-1.5 bg-red-400 rounded-full flex-shrink-0"></div>
+        <code class="mono text-xs text-red-300">${c}</code>
+      </div>`).join('')}</div>`
+  }
+
+  document.getElementById('latest-card').innerHTML = `
+    <div class="flex items-start justify-between mb-4">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-full bg-violet-500/20 border border-violet-500/30 flex items-center justify-center text-sm font-bold text-violet-300">R</div>
+        <div>
+          <div class="font-semibold text-sm text-slate-100">PR #${a.prNumber}</div>
+          <div class="text-xs text-slate-500 mono mt-0.5">${a.repo} · ${timeAgo(a.timestamp)}</div>
+        </div>
+      </div>
+      <span class="text-xs border px-2.5 py-1 rounded-full ${statusColor}">${statusLabel}</span>
+    </div>
+    <div class="bg-slate-900 rounded-xl p-4 border border-slate-800 text-sm text-slate-300 leading-relaxed">${a.reason}</div>
+    ${contractsHtml}
+  `
+}
+
+// --- History ---
+function renderHistory(analyses) {
+  if (analyses.length <= 1) return
+  document.getElementById('history').innerHTML = analyses.slice(1).map(a => `
+    <div class="flex items-center justify-between py-2.5 border-b border-slate-800/50 last:border-0">
+      <div class="flex items-center gap-3">
+        <span class="mono text-xs px-2 py-0.5 rounded-full ${a.risk==='HIGH'?'badge-high':'badge-low'}">${a.risk}</span>
+        <span class="text-sm text-slate-300">PR #${a.prNumber}</span>
+      </div>
+      <div class="flex items-center gap-3">
+        <span class="text-xs ${a.status==='deployed'?'text-green-400':'text-yellow-400'}">${a.status==='deployed'?'deployed':'blocked'}</span>
+        <span class="text-xs text-slate-600 mono">${timeAgo(a.timestamp)}</span>
+      </div>
+    </div>`).join('')
+}
+
+// --- Main refresh loop ---
+async function refresh() {
+  try {
+    const res = await fetch(`${BACKEND}/status`)
+    const { analyses } = await res.json()
+
+    document.getElementById('dot').className = 'w-2 h-2 bg-green-400 rounded-full animate-pulse'
+    document.getElementById('status-text').textContent = 'Pipeline active'
+
+    const total = analyses.length
+    const high = analyses.filter(a => a.risk === 'HIGH').length
+    const low  = analyses.filter(a => a.risk === 'LOW').length
+    document.getElementById('stat-total').textContent = total
+    document.getElementById('stat-high').textContent  = high
+    document.getElementById('stat-low').textContent   = low
+
+    if (analyses.length > 0) {
+      const latest = analyses[0]
+      renderLatest(latest)
+      renderGraph(latest.risk)
+      renderPipeline(latest.risk, latest.status)
+      renderHistory(analyses)
+    } else {
+      renderPipeline(null, null)
+      renderGraph('HIGH') // show default graph
+    }
+  } catch(e) {
+    document.getElementById('dot').className = 'w-2 h-2 bg-red-400 rounded-full'
+    document.getElementById('status-text').textContent = 'backend offline'
+  }
+}
+
+renderPipeline(null, null)
+renderGraph('HIGH')
+refresh()
+setInterval(refresh, 10000)
+</script>
 </body>
 </html>
